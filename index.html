@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Request Queue with Status</title>
+    <title>CTC TCP Request Queue</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 30px; }
         button, select, textarea, input { margin: 5px; padding: 8px; font-size: 14px; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         th, td { border: 1px solid #ccc; padding: 10px; text-align: left; vertical-align: top; }
         th { background-color: #f4f4f4; }
-        textarea, input[type="text"] { width: 100%; box-sizing: border-box; resize: vertical; }
+        textarea, input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; resize: vertical; }
         .status-expired { background-color: #ffe5e5; font-weight: bold; }
         .status-warning { background-color: #fffacc; }
         .status-processed { background-color: #e5ffe5; opacity: 0.7; }
@@ -36,6 +36,16 @@
 </select>
 
 <button id="addRequestBtn">Add Request</button>
+
+<br><br>
+<label for="statusFilter"><strong>Filter by Status:</strong></label>
+<select id="statusFilter">
+    <option value="all">All</option>
+    <option value="active">Active</option>
+    <option value="clientRevisions">Needs Revisions</option>
+    <option value="processed">Processed</option>
+    <option value="late">Late</option>
+</select>
 
 <h3>Queue:</h3>
 <table>
@@ -123,50 +133,45 @@ function deleteRequest(id) {
     }
 }
 
-function updateRequestStatus(id, newStatus) {
-    const index = findReqIndexById(id);
-    if (index === -1) return;
-    const req = queue[index];
-    const now = new Date();
+function requestTimeInput(req, actionType) {
+    const row = document.getElementById(req.id);
+    const actionsCell = row.querySelector('.actions-cell');
+    actionsCell.innerHTML = "";
 
-    if (newStatus === 'needsRevisions') {
-        const hoursStr = prompt("Enter new fulfillment time in hours (e.g., 24 for 1 business day):", "24");
-        const hours = parseInt(hoursStr);
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "1";
+    input.value = req.businessHours || 24;
+    input.style.width = "80px";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.textContent = "Set Time";
+    confirmBtn.addEventListener("click", () => {
+        const hours = parseInt(input.value);
         if (isNaN(hours) || hours <= 0) {
-            alert("Invalid time. Request not updated.");
+            alert("Invalid time.");
             return;
         }
+        const now = new Date();
         req.timestamp = now;
         req.deadline = new Date(now.getTime() + hours * 60 * 60 * 1000);
         req.businessHours = hours;
-        req.status = "clientRevisions";
+        req.status = actionType;
         req.frozenTimeLeft = null;
-    } 
-    else if (newStatus === 'active') {
-        const hoursStr = prompt("Enter new fulfillment time in hours (e.g., 24 for 1 business day):", req.businessHours || "24");
-        const hours = parseInt(hoursStr);
-        if (isNaN(hours) || hours <= 0) {
-            alert("Invalid time. Request not updated.");
-            return;
-        }
-        req.timestamp = now;
-        req.deadline = new Date(now.getTime() + hours * 60 * 60 * 1000);
-        req.businessHours = hours;
-        req.frozenTimeLeft = null;
-        req.status = 'active';
-    } else if (newStatus !== 'active') {
-        req.status = newStatus;
-        req.frozenTimeLeft = Math.max(0, req.deadline.getTime() - now.getTime());
-    }
 
-    saveQueue();
-    renderQueue();
+        saveQueue();
+        renderQueue();
+    });
+
+    actionsCell.appendChild(input);
+    actionsCell.appendChild(confirmBtn);
 }
 
 function renderQueue() {
     const tbody = document.getElementById("queueTableBody");
     tbody.innerHTML = "";
 
+    const filterValue = document.getElementById("statusFilter").value;
     const sortedQueue = [...queue].sort((a, b) => {
         const isActive = s => s === 'active' || s === 'clientRevisions';
         if (isActive(a.status) && !isActive(b.status)) return -1;
@@ -175,7 +180,14 @@ function renderQueue() {
         return 0;
     });
 
+    const now = new Date();
+
     sortedQueue.forEach((req, displayIndex) => {
+        const isLate = (req.status === 'active' || req.status === 'clientRevisions') && req.deadline < now;
+
+        if (filterValue === 'late' && !isLate) return;
+        if (filterValue !== 'all' && filterValue !== 'late' && req.status !== filterValue) return;
+
         const row = document.createElement("tr");
         row.id = req.id;
 
@@ -190,13 +202,17 @@ function renderQueue() {
         `;
         tbody.appendChild(row);
 
-        // Add buttons dynamically
         const actionsCell = row.querySelector('.actions-cell');
         actionsCell.innerHTML = "";
         if (req.status === 'active') {
             const processBtn = document.createElement("button");
             processBtn.textContent = "Process";
-            processBtn.addEventListener("click", () => updateRequestStatus(req.id, 'processed'));
+            processBtn.addEventListener("click", () => {
+                req.status = 'processed';
+                req.frozenTimeLeft = Math.max(0, req.deadline.getTime() - new Date().getTime());
+                saveQueue();
+                renderQueue();
+            });
             actionsCell.appendChild(processBtn);
 
             const deleteBtn = document.createElement("button");
@@ -206,12 +222,12 @@ function renderQueue() {
         } else if (req.status === 'processed') {
             const reactivateBtn = document.createElement("button");
             reactivateBtn.textContent = "Re-activate";
-            reactivateBtn.addEventListener("click", () => updateRequestStatus(req.id, 'active'));
+            reactivateBtn.addEventListener("click", () => requestTimeInput(req, 'active'));
             actionsCell.appendChild(reactivateBtn);
 
             const revisionsBtn = document.createElement("button");
             revisionsBtn.textContent = "Needs Revisions";
-            revisionsBtn.addEventListener("click", () => updateRequestStatus(req.id, 'needsRevisions'));
+            revisionsBtn.addEventListener("click", () => requestTimeInput(req, 'clientRevisions'));
             actionsCell.appendChild(revisionsBtn);
 
             const deleteBtn = document.createElement("button");
@@ -221,7 +237,12 @@ function renderQueue() {
         } else if (req.status === 'clientRevisions') {
             const processBtn = document.createElement("button");
             processBtn.textContent = "Process";
-            processBtn.addEventListener("click", () => updateRequestStatus(req.id, 'processed'));
+            processBtn.addEventListener("click", () => {
+                req.status = 'processed';
+                req.frozenTimeLeft = Math.max(0, req.deadline.getTime() - new Date().getTime());
+                saveQueue();
+                renderQueue();
+            });
             actionsCell.appendChild(processBtn);
 
             const deleteBtn = document.createElement("button");
@@ -244,8 +265,9 @@ function updateTimers() {
         let statusClass = `status-${req.status}`;
         let timeDisplay;
 
-        const formattedStatus = req.status === 'clientRevisions' ? 'Client Requested Revisions' :
-            req.status.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+        const formattedStatus = (req.status === 'clientRevisions' ? 'Client Requested Revisions' :
+            ((req.status === 'active' || req.status === 'clientRevisions') && req.deadline < now ? 'Late' :
+            req.status.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())));
 
         if (req.status === 'active' || req.status === 'clientRevisions') {
             timeLeftMs = req.deadline.getTime() - now.getTime();
@@ -273,8 +295,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadQueue();
     renderQueue();
     setInterval(updateTimers, 1000);
-
     document.getElementById("addRequestBtn").addEventListener("click", addRequest);
+    document.getElementById("statusFilter").addEventListener("change", renderQueue);
 });
 </script>
 
