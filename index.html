@@ -44,6 +44,9 @@
 
 <h2>CTC TCP Request Queue</h2>
 
+<label for="clientInput"><strong>Client Name:</strong></label><br>
+<input type="text" id="clientInput" placeholder="Enter client name"><br>
+
 <label for="requestInput"><strong>Request:</strong></label><br>
 <textarea id="requestInput" placeholder="Enter request data" rows="3"></textarea><br>
 
@@ -75,6 +78,7 @@
     <thead>
         <tr>
             <th>#</th>
+            <th>Client Name</th>
             <th>Request</th>
             <th>Email Link</th>
             <th>Status</th>
@@ -126,16 +130,19 @@ function getBusinessDaysLeft(deadline) {
 function formatTime(daysLeft) { return daysLeft <= 0 ? "0 days" : `${daysLeft} day${daysLeft !== 1 ? 's' : ''}`; }
 
 function addRequest() {
+    const clientName = document.getElementById('clientInput').value.trim();
     const requestInput = document.getElementById('requestInput').value.trim();
     const emailInput = document.getElementById('emailInput').value.trim();
     const businessDays = parseInt(document.getElementById('timeSelect').value);
-    if (!requestInput || isNaN(businessDays)) return;
+
+    if (!clientName || !requestInput || isNaN(businessDays)) return;
 
     const timestamp = new Date();
     const deadline = addBusinessDays(timestamp, businessDays);
 
     queue.push({
         id: `req_${Date.now()}`,
+        client: clientName,
         data: requestInput,
         email: emailInput,
         timestamp,
@@ -145,6 +152,7 @@ function addRequest() {
         frozenTimeLeft: null
     });
 
+    document.getElementById('clientInput').value = "";
     document.getElementById('requestInput').value = "";
     document.getElementById('emailInput').value = "";
     saveQueue();
@@ -199,6 +207,7 @@ function renderQueue() {
 
         row.innerHTML = `
             <td>${i+1}</td>
+            <td>${req.client}</td>
             <td>${req.data.replace(/\n/g,"<br>")}</td>
             <td>${emailHTML}</td>
             <td class="status-cell"></td>
